@@ -1,5 +1,6 @@
 #include <iostream>
 #include <atomic>
+#include <thread>
 
 template<typename T>
 class lfqueue {
@@ -13,6 +14,10 @@ private:
 
     std::atomic<node *> head{nullptr};
     std::atomic<node *> tail{nullptr};
+
+    const unsigned MIN_DELAY = 1;
+    const unsigned MAX_DELAY = 100;
+    const unsigned FACTOR = 2;
 
 public:
     lfqueue() {
@@ -29,6 +34,8 @@ public:
 
         node *cur_tail;
 
+        int delay = MIN_DELAY;
+
         while (true) {
 
             cur_tail = tail.load();
@@ -43,12 +50,18 @@ public:
                     tail.compare_exchange_weak(cur_tail, cur_next);
                 }
             }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+            delay = std::min(delay * FACTOR, MAX_DELAY);
         }
         tail.compare_exchange_strong(cur_tail, new_node);
     }
 
     bool pop(T &result) {
         node *cur_head;
+
+        int delay = MIN_DELAY;
+
         while (true) {
             cur_head = head.load();
             node *cur_tail = tail.load();
@@ -67,16 +80,17 @@ public:
                     }
                 }
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+            delay = std::min(delay * FACTOR, MAX_DELAY);
         }
         delete cur_head;
+
         return true;
     }
 
 };
 
 int main() {
-
-    std::cout << "Hello, World!!!" << std::endl;
 
     lfqueue<int> *lfqueue1 = new lfqueue<int>();
     for (int i = 0; i < 10; i++)
@@ -89,5 +103,6 @@ int main() {
             std::cout << "Queue is empty" << std::endl;
         }
     }
+
     return 0;
 }
