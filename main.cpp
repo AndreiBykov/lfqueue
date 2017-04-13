@@ -1,6 +1,8 @@
 #include <iostream>
 #include <atomic>
 #include <thread>
+#include <vector>
+#include <algorithm>
 
 template<typename T>
 class lfqueue {
@@ -12,6 +14,8 @@ private:
         std::shared_ptr<node> next;
 
         node(T const &_data) : data(std::make_shared<T>(_data)) {}
+
+        node() {}
     };
 
     std::shared_ptr<node> head;
@@ -22,8 +26,8 @@ private:
     const unsigned FACTOR = 2;
 
 public:
-    lfqueue(T data) {
-        std::shared_ptr<node> empty_node = std::make_shared<node>(data);
+    lfqueue() {
+        std::shared_ptr<node> empty_node = std::make_shared<node>();
         empty_node->next = nullptr;
         head = empty_node;
         tail = empty_node;
@@ -91,20 +95,52 @@ public:
 
 };
 
-int main() {
+void thread_func(lfqueue<int> *lfq, int amount_of_operations) {
 
-    lfqueue<int> *lfqueue1 = new lfqueue<int>(1010);
-    for (int i = 0; i < 10; i++)
-        lfqueue1->push(i);
+    unsigned seed = (unsigned) time(NULL);
+    for (int i = 0; i < amount_of_operations; ++i) {
+        switch (rand_r(&seed) % 2) {
+            case 0:
+                lfq->push(rand_r(&seed));
+                break;
+            case 1:
+                lfq->pop();
+                break;
 
-    for (int j = 0; j < 20; ++j) {
-        std::shared_ptr<int> result= lfqueue1->pop();
-        if (result != nullptr) {
-            std::cout << *result.get() << std::endl;
-        } else{
-            std::cout<<"Queue is empty"<<std::endl;
+            default:
+                break;
         }
     }
 
+}
+
+int main(int argc, char **argv) {
+
+    if (argc < 3) {
+        std::cout << "Not enought args" << std::endl;
+    }
+
+    int amount_of_threads = atoi(argv[1]);
+    int amount_of_operations = atoi(argv[2]);
+
+    lfqueue<int> *lfq = new lfqueue<int>();
+
+    std::vector<std::thread> threads;
+
+    auto get_time = std::chrono::steady_clock::now;
+    decltype(get_time()) start, end;
+    start = get_time();
+
+    for (int i = 0; i < amount_of_threads; ++i) {
+        int amount = amount_of_operations / (amount_of_threads - i);
+        amount_of_operations -= amount;
+        threads.push_back(std::thread(thread_func, lfq, amount));
+    }
+
+    std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
+    end = get_time();
+
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "Elapsed time: " << double(elapsed) / 1000 << " s\n";
     return 0;
 }
