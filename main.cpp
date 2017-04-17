@@ -8,16 +8,61 @@ class lfqueue {
 private:
 
     struct node {
-        T data;
+        std::shared_ptr<T> data;
         std::atomic<node *> next;
     };
 
     std::atomic<node *> head{nullptr};
     std::atomic<node *> tail{nullptr};
 
+    std::atomic<unsigned> threads_in_pop;
+    std::atomic<node *> delete_list;
+
     const unsigned MIN_DELAY = 1;
     const unsigned MAX_DELAY = 100;
     const unsigned FACTOR = 2;
+
+    static void delete_nodes(node *nodes) {
+        while (nodes) {
+            node *next = nodes->next;
+            delete nodes;
+            nodes = next;
+        }
+    }
+
+    void try_reclaim(node *old_head) {
+        if (threads_in_pop == 1) {
+            node *nodes_to_delete = delete_list.exchange(nullptr);
+            if (!--threads_in_pop) {
+                delete_nodes(nodes_to_delete);
+            } else if (nodes_to_delete) {
+                chain_pending_nodes(nodes_to_delete);
+            }
+            delete old_head;
+        } else {
+            chain_pending_node(old_head);
+            --threads_in_pop;
+        }
+    }
+
+    void chain_pending_nodes(node *nodes) {
+        node *last = nodes;
+        while (node *const next = last->next)
+            last = next;
+        chain_pending_nodes(nodes, last);
+    }
+
+    void chain_pending_nodes(node *first, node *last) {
+        node *next;
+        do {
+            next = delete_list;
+            last->next = next;
+        } while (delete_list.compare_exchange_weak(next, first));
+    }
+
+    void chain_pending_node(node *n) {
+        chain_pending_nodes(n, n);
+    }
 
 public:
     lfqueue() {
@@ -29,7 +74,7 @@ public:
 
     void push(T const &data) {
         node *new_node = new node();
-        new_node->data = data;
+        new_node->data = std::make_shared<T>(data);
         new_node->next = nullptr;
 
         node *cur_tail;
@@ -57,11 +102,13 @@ public:
         tail.compare_exchange_strong(cur_tail, new_node);
     }
 
-    bool pop(T &result) {
+    std::shared_ptr<T> pop() {
+        threads_in_pop++;
         node *cur_head;
 
         int delay = MIN_DELAY;
 
+        std::shared_ptr<T> result;
         while (true) {
             cur_head = head.load();
             node *cur_tail = tail.load();
@@ -70,11 +117,11 @@ public:
             if (cur_head == head.load()) {
                 if (head == tail) {
                     if (cur_next == nullptr) {
-                        return false;
+                        return std::shared_ptr<T>();
                     }
                     tail.compare_exchange_weak(cur_tail, cur_next);
                 } else {
-                    result = cur_next->data;
+                    result.swap(cur_next->data);
                     if (head.compare_exchange_weak(cur_head, cur_next)) {
                         break;
                     }
@@ -83,9 +130,9 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(delay));
             delay = std::min(delay * FACTOR, MAX_DELAY);
         }
-        delete cur_head;
 
-        return true;
+        try_reclaim(cur_head);
+        return result;
     }
 
 };
@@ -95,10 +142,11 @@ int main() {
     lfqueue<int> *lfqueue1 = new lfqueue<int>();
     for (int i = 0; i < 10; i++)
         lfqueue1->push(i);
-    int res;
+    std::shared_ptr<int> res;
     for (int j = 0; j < 20; ++j) {
-        if (lfqueue1->pop(res)) {
-            std::cout << res << std::endl;
+        res = lfqueue1->pop();
+        if (res) {
+            std::cout << *res.get() << std::endl;
         } else {
             std::cout << "Queue is empty" << std::endl;
         }
