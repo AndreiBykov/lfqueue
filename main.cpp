@@ -59,7 +59,7 @@ private:
         do {
             next = delete_list;
             last->next = next;
-        } while (delete_list.compare_exchange_weak(next, first));
+        } while (!delete_list.compare_exchange_weak(next, first));
     }
 
     void chain_pending_node(node *n) {
@@ -119,7 +119,8 @@ public:
             if (cur_head == head.load()) {
                 if (head == tail) {
                     if (cur_next == nullptr) {
-                        return false;
+                        threads_in_pop--;
+                        return std::shared_ptr<T>();
                     }
                     tail.compare_exchange_weak(cur_tail, cur_next);
                 } else {
@@ -140,7 +141,6 @@ public:
 };
 
 void thread_func(lfqueue<int> *lfq, int amount_of_operations) {
-
     unsigned seed = (unsigned) time(NULL);
     for (int i = 0; i < amount_of_operations; ++i) {
         switch (rand_r(&seed) % 2) {
@@ -164,8 +164,8 @@ int main(int argc, char **argv) {
         std::cout << "Not enought args" << std::endl;
     }
 
-    int amount_of_threads = atoi(argv[1]);
-    int amount_of_operations = atoi(argv[2]);
+    int amount_of_operations = atoi(argv[1]);
+    int amount_of_threads = atoi(argv[2]);
 
     lfqueue<int> *lfq = new lfqueue<int>();
 
