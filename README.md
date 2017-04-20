@@ -1,4 +1,4 @@
 Distributed systems  
 Laboratory work #6  
 Variant #1  
-Lock-free queue  
+Implementation lock-free singly linked queue using exponential backoff
